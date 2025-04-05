@@ -7,7 +7,7 @@
 #include "util/util.h"
 
 volatile static int attacker_core_ID;
-volatile static double power_limit = 32767;
+volatile static double power_limit = 0.1;
 volatile double energy_value = 0;
 volatile static double* current_energy = &energy_value;
 

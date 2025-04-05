@@ -5,7 +5,13 @@
 - These programs are designed to run on Intel CPUs running Linux OS. Testing for these experiments was done on a 12700KF Intel CPU running Fedora 41 Linux. Due to the nature of the program requiring read access to Intel's RAPL Register for calculating wattage, it is not known if it is possible to run this program on a system that does not meet these two requirements.
 - An additional requirement of running these tests is that the program be run on bare metal using root level privileges. Root level privileges are required for reading the RAPL register and loading in the msr kernel module. Running these tests on bare metal is required to obtain access to the RAPL CPU register.
 ## Running the tests
-- The first step to run the tests is to compile the program as so:
+- Before running the tests, the value of the maximum power limit should be modified. Using a text editor of your choice, open the driver.c file. At the top, there is a value
+```
+volatile static double power limit = <some_number>;
+```
+A good value for this number is ~0.1 in order to introduce NOP throttling based on high wattage. To remove throttling and test what the functionality looks like without NOPs, the value can be set to something very high, in our tests we used 32767.
+
+- After modifying this, the next step to run the tests is to compile the program as so:
 ```
 make
 ```
