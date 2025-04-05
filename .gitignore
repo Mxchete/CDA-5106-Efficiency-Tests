@@ -2,4 +2,6 @@ bin/*
 out/*
 data/*
 obj/*
+*.o
+util/*.o
 input.txt
