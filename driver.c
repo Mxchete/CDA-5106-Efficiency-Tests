@@ -34,35 +34,35 @@ struct args_t {
   int selector;
 };
 
-// TODO: Workload?
-static __attribute__((noinline)) void workload(void) {
+static __attribute__((noinline)) void workload(uint64_t *count,
+                                               uint64_t *my_uint64) {
   asm volatile(".align 64\t\n"
 
-               "shlx $0, $x0000FFFFFFFF0000, %%rbx\n\t"
-               "shlx $1, $x0000FFFFFFFF0000, %%rcx\n\t"
-               "shrx $2, $x0000FFFFFFFF0000, %%rsi\n\t"
-               "shrx $3, $x0000FFFFFFFF0000, %%rdi\n\t"
-               "shlx $4, $x0000FFFFFFFF0000, %%r8\n\t"
-               "shlx $5, $x0000FFFFFFFF0000, %%r9\n\t"
-               "shrx $6, $x0000FFFFFFFF0000, %%r10\n\t"
-               "shrx $7, $x0000FFFFFFFF0000, %%r11\n\t"
-               "shlx $8, $x0000FFFFFFFF0000, %%r12\n\t"
-               "shlx $9, $x0000FFFFFFFF0000, %%r13\n\t"
+               "shlx %[count], %[value], %%rbx\n\t"
+               "shlx %[count], %[value], %%rcx\n\t"
+               "shrx %[count], %[value], %%rsi\n\t"
+               "shrx %[count], %[value], %%rdi\n\t"
+               "shlx %[count], %[value], %%r8\n\t"
+               "shlx %[count], %[value], %%r9\n\t"
+               "shrx %[count], %[value], %%r10\n\t"
+               "shrx %[count], %[value], %%r11\n\t"
+               "shlx %[count], %[value], %%r12\n\t"
+               "shlx %[count], %[value], %%r13\n\t"
 
-               "shrx $0, $x0000FFFFFFFF0000, %%rbx\n\t"
-               "shrx $1, $x0000FFFFFFFF0000, %%rcx\n\t"
-               "shlx $2, $x0000FFFFFFFF0000, %%rsi\n\t"
-               "shlx $3, $x0000FFFFFFFF0000, %%rdi\n\t"
-               "shrx $4, $x0000FFFFFFFF0000, %%r8\n\t"
-               "shrx $5, $x0000FFFFFFFF0000, %%r9\n\t"
-               "shlx $6, $x0000FFFFFFFF0000, %%r10\n\t"
-               "shlx $7, $x0000FFFFFFFF0000, %%r11\n\t"
-               "shrx $8, $x0000FFFFFFFF0000, %%r12\n\t"
-               "shrx $9, $x0000FFFFFFFF0000, %%r13\n\t"
+               "shrx %[count], %[value], %%rbx\n\t"
+               "shrx %[count], %[value], %%rcx\n\t"
+               "shlx %[count], %[value], %%rsi\n\t"
+               "shlx %[count], %[value], %%rdi\n\t"
+               "shrx %[count], %[value], %%r8\n\t"
+               "shrx %[count], %[value], %%r9\n\t"
+               "shlx %[count], %[value], %%r10\n\t"
+               "shlx %[count], %[value], %%r11\n\t"
+               "shrx %[count], %[value], %%r12\n\t"
+               "shrx %[count], %[value], %%r13\n\t"
                "lock addl $11, %[instruction_count]"
 
                : [instruction_count] "+m"(*instruction_counter_ptr)
-               :
+               : [count] "r"(*count), [value] "r"(*my_uint64)
                : "rbx", "rcx", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12",
                  "r13");
 }
@@ -71,15 +71,17 @@ static __attribute__((noinline)) void throttle(void) {
   nanosleep((const struct timespec[]){{0, TIME_BETWEEN_MEASUREMENTS}}, NULL);
 }
 
+// TODO: figure out how to create atomic pointer to function to prevent null
+// pointer
 _Atomic func_ptr_t work = workload;
 
 static __attribute__((noinline)) int victim(void *varg) {
-  // struct args_t *arg = varg;
-  // uint64_t my_uint64 = 0x0000FFFFFFFF0000;
-  // uint64_t count = (uint64_t)arg->selector;
+  struct args_t *arg = varg;
+  uint64_t my_uint64 = 0x0000FFFFFFFF0000;
+  uint64_t count = (uint64_t)arg->selector;
 
   while (1) {
-    work();
+    work(count, my_uint64);
   }
 
   return 0;
