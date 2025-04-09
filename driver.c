@@ -68,6 +68,8 @@ static __attribute__((noinline)) void throttle(void) {
   nanosleep((const struct timespec[]){{0, TIME_BETWEEN_MEASUREMENTS}}, NULL);
 }
 
+// TODO: figure out how to create atomic pointer to function to prevent null
+// pointer
 _Atomic void (*work)(void) = workload;
 
 static __attribute__((noinline)) int victim(void *varg) {
