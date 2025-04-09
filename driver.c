@@ -27,7 +27,7 @@ volatile static uint32_t *instruction_counter_ptr = &instruction_counter;
 
 #define STACK_SIZE 8192
 
-typedef void (*func_ptr_t)();
+typedef void (*func_ptr_t)(uint64_t *, uint64_t *);
 
 struct args_t {
   uint64_t iters;
@@ -67,7 +67,8 @@ static __attribute__((noinline)) void workload(uint64_t *count,
                  "r13");
 }
 
-static __attribute__((noinline)) void throttle(void) {
+static __attribute__((noinline)) void throttle(uint64_t *unused_one,
+                                               uint64_t *unused_two) {
   nanosleep((const struct timespec[]){{0, TIME_BETWEEN_MEASUREMENTS}}, NULL);
 }
 
