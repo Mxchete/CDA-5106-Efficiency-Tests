@@ -24,12 +24,12 @@ for selector in $(seq 0 16); do
 done
 
 ### Simulate w/ dynamic instruction throttling
-sudo ./bin/driver ${num_thread} ${samples} ${outer} 80
-cp -r out data/out-${date}
+sudo ./bin/driver ${num_thread} ${samples} ${outer} 40
+cp -r out data/out-${date}-limited
 
 ### Simulate w/o dynamic instruction throttling
 sudo ./bin/driver ${num_thread} ${samples} ${outer} 2000
-cp -r out data/out-${date}
+cp -r out data/out-${date}-non-limited
 
 # Unload MSR module
 sudo modprobe -r msr
