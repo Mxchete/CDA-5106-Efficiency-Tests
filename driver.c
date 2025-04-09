@@ -77,8 +77,10 @@ _Atomic func_ptr_t work = workload;
 
 static __attribute__((noinline)) int victim(void *varg) {
   struct args_t *arg = varg;
-  uint64_t my_uint64 = 0x0000FFFFFFFF0000;
-  uint64_t count = (uint64_t)arg->selector;
+  uint64_t my_uint64_val = 0x0000FFFFFFFF0000;
+  uint64_t *my_uint64 = &my_uint64_val;
+  uint64_t count_val = (uint64_t)arg->selector;
+  uint64_t *count = &count_val;
 
   while (1) {
     work(count, my_uint64);
