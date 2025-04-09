@@ -1,9 +1,10 @@
+#include <stdatomic.h>
+#include <stdint.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 
-#include "util/freq-utils.h"
 #include "util/rapl-utils.h"
 #include "util/util.h"
 
@@ -16,7 +17,6 @@ volatile static double power_limit;
 // energy_value defines the memory location of the energy value, pointer is a
 // static pointer to that memory location that we can reference
 volatile double energy_value = 0;
-volatile const static double *current_energy = &energy_value;
 
 // again, we define the memory location and a pointer to that location that we
 // can access
@@ -32,86 +32,58 @@ struct args_t {
   int selector;
 };
 
+static __attribute__((noinline)) void workload(void) {
+  asm volatile(".align 64\t\n"
+
+               "shlx %[count], %[value], %%rbx\n\t"
+               "shlx %[count], %[value], %%rcx\n\t"
+               "shrx %[count], %[value], %%rsi\n\t"
+               "shrx %[count], %[value], %%rdi\n\t"
+               "shlx %[count], %[value], %%r8\n\t"
+               "shlx %[count], %[value], %%r9\n\t"
+               "shrx %[count], %[value], %%r10\n\t"
+               "shrx %[count], %[value], %%r11\n\t"
+               "shlx %[count], %[value], %%r12\n\t"
+               "shlx %[count], %[value], %%r13\n\t"
+
+               "shrx %[count], %[value], %%rbx\n\t"
+               "shrx %[count], %[value], %%rcx\n\t"
+               "shlx %[count], %[value], %%rsi\n\t"
+               "shlx %[count], %[value], %%rdi\n\t"
+               "shrx %[count], %[value], %%r8\n\t"
+               "shrx %[count], %[value], %%r9\n\t"
+               "shlx %[count], %[value], %%r10\n\t"
+               "shlx %[count], %[value], %%r11\n\t"
+               "shrx %[count], %[value], %%r12\n\t"
+               "shrx %[count], %[value], %%r13\n\t"
+               "lock addl $11, %[instruction_count]"
+
+               : [instruction_count] "+m"(*instruction_counter_ptr)
+               : [count] "r"(0), [value] "r"(0x0000FFFFFFF0000)
+               : "rbx", "rcx", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12",
+                 "r13");
+}
+
+static __attribute__((noinline)) void throttle(void) {
+  nanosleep((const struct timespec[]){{0, TIME_BETWEEN_MEASUREMENTS}}, NULL);
+}
+
+_Atomic void (*work)(void) = workload;
+
 static __attribute__((noinline)) int victim(void *varg) {
-  struct args_t *arg = varg;
-  uint64_t my_uint64 = 0x0000FFFFFFFF0000;
-  uint64_t count = (uint64_t)arg->selector;
+  // struct args_t *arg = varg;
+  // uint64_t my_uint64 = 0x0000FFFFFFFF0000;
+  // uint64_t count = (uint64_t)arg->selector;
 
   while (1) {
-    if (*current_energy < power_limit) {
-      asm volatile(".align 64\t\n"
-
-                   "shlx %[count], %[value], %%rbx\n\t"
-                   "shlx %[count], %[value], %%rcx\n\t"
-                   "shrx %[count], %[value], %%rsi\n\t"
-                   "shrx %[count], %[value], %%rdi\n\t"
-                   "shlx %[count], %[value], %%r8\n\t"
-                   "shlx %[count], %[value], %%r9\n\t"
-                   "shrx %[count], %[value], %%r10\n\t"
-                   "shrx %[count], %[value], %%r11\n\t"
-                   "shlx %[count], %[value], %%r12\n\t"
-                   "shlx %[count], %[value], %%r13\n\t"
-
-                   "shrx %[count], %[value], %%rbx\n\t"
-                   "shrx %[count], %[value], %%rcx\n\t"
-                   "shlx %[count], %[value], %%rsi\n\t"
-                   "shlx %[count], %[value], %%rdi\n\t"
-                   "shrx %[count], %[value], %%r8\n\t"
-                   "shrx %[count], %[value], %%r9\n\t"
-                   "shlx %[count], %[value], %%r10\n\t"
-                   "shlx %[count], %[value], %%r11\n\t"
-                   "shrx %[count], %[value], %%r12\n\t"
-                   "shrx %[count], %[value], %%r13\n\t"
-                   "lock addl $11, %[instruction_count]"
-
-                   : [instruction_count] "+m"(*instruction_counter_ptr)
-                   : [count] "r"(count), [value] "r"(my_uint64)
-                   : "rbx", "rcx", "rsi", "rdi", "r8", "r9", "r10", "r11",
-                     "r12", "r13");
-    } else {
-      asm volatile("nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   "nop\n\t"
-                   :
-                   :
-                   :);
-    }
+    work();
   }
 
   return 0;
 }
 
 // Collects traces
-static __attribute__((noinline)) int monitor(void *in) {
+static __attribute__((noinline)) int governor(void *in) {
   static int rept_index = 0;
 
   struct args_t *arg = (struct args_t *)in;
@@ -144,11 +116,22 @@ static __attribute__((noinline)) int monitor(void *in) {
 
     // Collect measurement
     energy = rapl_msr(attacker_core_ID, PP0_ENERGY);
-    // time must be divided by 1_000_000_000, since 1 second under nanosleep is 1 billion
-    energy_value = ((energy - prev_energy)*1000000000) / (double)(TIME_BETWEEN_MEASUREMENTS);
+    // time must be divided by 1_000_000_000, since 1 second under nanosleep is
+    // 1 billion
+    energy_value = ((energy - prev_energy) * 1000000000) /
+                   (double)(TIME_BETWEEN_MEASUREMENTS);
+
+    // Evaluate whether workload should execute, or throttle
+    if (energy_value >= power_limit) {
+      // Switch to throttling
+      atomic_store(&work, throttle);
+    } else {
+      // Allow threads to resume execution
+      atomic_store(&work, workload);
+    }
 
     // Store measurement
-    fprintf(output_file, "%.15f\n", *current_energy);
+    fprintf(output_file, "%.15f\n", energy_value);
 
     // Save current
     prev_energy = energy;
@@ -162,7 +145,8 @@ static __attribute__((noinline)) int monitor(void *in) {
 int main(int argc, char *argv[]) {
   // Check arguments
   if (argc != 5) {
-    fprintf(stderr, "Wrong Input! Enter: %s <ntasks> <samples> <outer> <power_limit>\n",
+    fprintf(stderr,
+            "Wrong Input! Enter: %s <ntasks> <samples> <outer> <power_limit>\n",
             argv[0]);
     exit(EXIT_FAILURE);
   }
@@ -237,7 +221,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Start the monitor thread
-    clone(&monitor, tstacks + (ntasks + 1) * STACK_SIZE, CLONE_VM | SIGCHLD,
+    clone(&governor, tstacks + (ntasks + 1) * STACK_SIZE, CLONE_VM | SIGCHLD,
           (void *)&arg);
 
     // Join monitor thread
@@ -253,22 +237,26 @@ int main(int argc, char *argv[]) {
     }
 
     // Get final average instruction count
-    int average_instruction_count_without_nop = *instruction_counter_ptr / ntasks;
+    int average_instruction_count_without_nop =
+        *instruction_counter_ptr / ntasks;
     // TODO: Write report function (average power from polling, total non-nop
     // instructions executed, etc)
     // report(average_instruction_count_without_nop);
     char output_instruction_filename[64];
-    sprintf(output_instruction_filename, "./out/all_%02d_%06d_instruction_count_avg.out", arg.selector,
+    sprintf(output_instruction_filename,
+            "./out/all_%02d_%06d_instruction_count_avg.out", arg.selector,
             instr_file_index);
     instr_file_index += 1;
 
     // Prepare output file
-    FILE *output_file_instructions = fopen((char *)output_instruction_filename, "w");
+    FILE *output_file_instructions =
+        fopen((char *)output_instruction_filename, "w");
     if (output_file_instructions == NULL) {
       perror("output file (instructions)");
     }
 
-    fprintf(output_file_instructions, "%d\n", average_instruction_count_without_nop);
+    fprintf(output_file_instructions, "%d\n",
+            average_instruction_count_without_nop);
   }
 
   // Clean up
