@@ -11,12 +11,12 @@
 volatile static int attacker_core_ID;
 
 // constant for power-based instruction throttling
-volatile static double power_limit = 0.1;
+volatile static double power_limit;
 
 // energy_value defines the memory location of the energy value, pointer is a
 // static pointer to that memory location that we can reference
 volatile double energy_value = 0;
-volatile static double *current_energy = &energy_value;
+volatile const static double *current_energy = &energy_value;
 
 // again, we define the memory location and a pointer to that location that we
 // can access
@@ -144,7 +144,8 @@ static __attribute__((noinline)) int monitor(void *in) {
 
     // Collect measurement
     energy = rapl_msr(attacker_core_ID, PP0_ENERGY);
-    energy_value = energy - prev_energy;
+    // time must be divided by 1_000_000_000, since 1 second under nanosleep is 1 billion
+    energy_value = ((energy - prev_energy)*1000000000) / (double)(TIME_BETWEEN_MEASUREMENTS);
 
     // Store measurement
     fprintf(output_file, "%.15f\n", *current_energy);
@@ -160,8 +161,8 @@ static __attribute__((noinline)) int monitor(void *in) {
 
 int main(int argc, char *argv[]) {
   // Check arguments
-  if (argc != 4) {
-    fprintf(stderr, "Wrong Input! Enter: %s <ntasks> <samples> <outer>\n",
+  if (argc != 5) {
+    fprintf(stderr, "Wrong Input! Enter: %s <ntasks> <samples> <outer> <power_limit>\n",
             argv[0]);
     exit(EXIT_FAILURE);
   }
@@ -179,6 +180,12 @@ int main(int argc, char *argv[]) {
   sscanf(argv[3], "%d", &outer);
   if (outer < 0) {
     fprintf(stderr, "outer cannot be negative!\n");
+    exit(1);
+  }
+
+  sscanf(argv[4], "%lf", &power_limit);
+  if (power_limit < 0) {
+    fprintf(stderr, "power_limit cannot be negative!\n");
     exit(1);
   }
 
@@ -217,6 +224,7 @@ int main(int argc, char *argv[]) {
 
   // Run experiment once for each selector
   for (int i = 0; i < outer * num_selectors; i++) {
+    static int instr_file_index = 0;
 
     // Set alternating selector
     arg.selector = selectors[i % num_selectors];
@@ -243,13 +251,25 @@ int main(int argc, char *argv[]) {
       // https://askubuntu.com/a/427222/1552488
       wait(NULL);
     }
-  }
 
-  // Get final average instruction count
-  int average_instruction_count_without_nop = *instruction_counter_ptr / ntasks;
-  // TODO: Write report function (average power from polling, total non-nop
-  // instructions executed, etc)
-  // report(average_instruction_count_without_nop);
+    // Get final average instruction count
+    int average_instruction_count_without_nop = *instruction_counter_ptr / ntasks;
+    // TODO: Write report function (average power from polling, total non-nop
+    // instructions executed, etc)
+    // report(average_instruction_count_without_nop);
+    char output_instruction_filename[64];
+    sprintf(output_instruction_filename, "./out/all_%02d_%06d_instruction_count_avg.out", arg.selector,
+            instr_file_index);
+    instr_file_index += 1;
+
+    // Prepare output file
+    FILE *output_file_instructions = fopen((char *)output_instruction_filename, "w");
+    if (output_file_instructions == NULL) {
+      perror("output file (instructions)");
+    }
+
+    fprintf(output_file_instructions, "%d\n", average_instruction_count_without_nop);
+  }
 
   // Clean up
   munmap(tstacks, (ntasks + 1) * STACK_SIZE);

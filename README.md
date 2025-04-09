@@ -4,6 +4,8 @@
 ## Background
 - These programs are designed to run on Intel CPUs running Linux OS. Testing for these experiments was done on a 12700KF Intel CPU running Fedora 41 Linux. Due to the nature of the program requiring read access to Intel's RAPL Register for calculating wattage, it is not known if it is possible to run this program on a system that does not meet these two requirements.
 - An additional requirement of running these tests is that the program be run on bare metal using root level privileges. Root level privileges are required for reading the RAPL register and loading in the msr kernel module. Running these tests on bare metal is required to obtain access to the RAPL CPU register.
+## Required Packages
+- stress-ng is used in the run script to warm-up the CPU
 ## Running the tests
 - Before running the tests, the value of the maximum power limit should be modified. Using a text editor of your choice, open the driver.c file. At the top, there is a value
 ```
