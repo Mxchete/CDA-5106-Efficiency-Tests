@@ -1,242 +1,272 @@
+#include <stdatomic.h>
+#include <stdint.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 
-#include "util/freq-utils.h"
 #include "util/rapl-utils.h"
 #include "util/util.h"
 
+// attacker core; 0 is package level
 volatile static int attacker_core_ID;
-volatile static double power_limit = 0.1;
+
+// constant for power-based instruction throttling
+volatile static double power_limit;
+
+// energy_value defines the memory location of the energy value, pointer is a
+// static pointer to that memory location that we can reference
 volatile double energy_value = 0;
-volatile static double* current_energy = &energy_value;
+
+// again, we define the memory location and a pointer to that location that we
+// can access
+volatile uint32_t instruction_counter;
+volatile static uint32_t *instruction_counter_ptr = &instruction_counter;
 
 #define TIME_BETWEEN_MEASUREMENTS 1000000L // 1 millisecond
 
 #define STACK_SIZE 8192
 
+typedef void (*func_ptr_t)(uint64_t *, uint64_t *);
+
 struct args_t {
-	uint64_t iters;
-	int selector;
+  uint64_t iters;
+  int selector;
 };
 
-static __attribute__((noinline)) int victim(void *varg)
-{
-	struct args_t *arg = varg;
-	uint64_t my_uint64 = 0x0000FFFFFFFF0000;
-	uint64_t count = (uint64_t)arg->selector;
+static __attribute__((noinline)) void workload(uint64_t *count,
+                                               uint64_t *my_uint64) {
+  asm volatile(".align 64\t\n"
 
-  while (1)
-  {
-    if (*current_energy < power_limit)
-    {
-      asm volatile(
-        ".align 64\t\n"
+               "shlx %[count], %[value], %%rbx\n\t"
+               "shlx %[count], %[value], %%rcx\n\t"
+               "shrx %[count], %[value], %%rsi\n\t"
+               "shrx %[count], %[value], %%rdi\n\t"
+               "shlx %[count], %[value], %%r8\n\t"
+               "shlx %[count], %[value], %%r9\n\t"
+               "shrx %[count], %[value], %%r10\n\t"
+               "shrx %[count], %[value], %%r11\n\t"
+               "shlx %[count], %[value], %%r12\n\t"
+               "shlx %[count], %[value], %%r13\n\t"
 
-        "shlx %[count], %[value], %%rbx\n\t"
-        "shlx %[count], %[value], %%rcx\n\t"
-        "shrx %[count], %[value], %%rsi\n\t"
-        "shrx %[count], %[value], %%rdi\n\t"
-        "shlx %[count], %[value], %%r8\n\t"
-        "shlx %[count], %[value], %%r9\n\t"
-        "shrx %[count], %[value], %%r10\n\t"
-        "shrx %[count], %[value], %%r11\n\t"
-        "shlx %[count], %[value], %%r12\n\t"
-        "shlx %[count], %[value], %%r13\n\t"
+               "shrx %[count], %[value], %%rbx\n\t"
+               "shrx %[count], %[value], %%rcx\n\t"
+               "shlx %[count], %[value], %%rsi\n\t"
+               "shlx %[count], %[value], %%rdi\n\t"
+               "shrx %[count], %[value], %%r8\n\t"
+               "shrx %[count], %[value], %%r9\n\t"
+               "shlx %[count], %[value], %%r10\n\t"
+               "shlx %[count], %[value], %%r11\n\t"
+               "shrx %[count], %[value], %%r12\n\t"
+               "shrx %[count], %[value], %%r13\n\t"
+               "lock addl $11, %[instruction_count]"
 
-        "shrx %[count], %[value], %%rbx\n\t"
-        "shrx %[count], %[value], %%rcx\n\t"
-        "shlx %[count], %[value], %%rsi\n\t"
-        "shlx %[count], %[value], %%rdi\n\t"
-        "shrx %[count], %[value], %%r8\n\t"
-        "shrx %[count], %[value], %%r9\n\t"
-        "shlx %[count], %[value], %%r10\n\t"
-        "shlx %[count], %[value], %%r11\n\t"
-        "shrx %[count], %[value], %%r12\n\t"
-        "shrx %[count], %[value], %%r13\n\t"
+               : [instruction_count] "+m"(*instruction_counter_ptr)
+               : [count] "r"(*count), [value] "r"(*my_uint64)
+               : "rbx", "rcx", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12",
+                 "r13");
+}
 
-        "nops:\n\t"
+static __attribute__((noinline)) void throttle(uint64_t *unused_one,
+                                               uint64_t *unused_two) {
+  nanosleep((const struct timespec[]){{0, TIME_BETWEEN_MEASUREMENTS}}, NULL);
+}
 
-        :
-        : [count] "r"(count), [value] "r"(my_uint64)
-        : "rbx", "rcx", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13");
-    }
-    else
-    {
-      asm volatile (
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        "nop\n\t"
-        :
-        :
-        :);
-    }
+// TODO: figure out how to create atomic pointer to function to prevent null
+// pointer
+_Atomic func_ptr_t work = workload;
+
+static __attribute__((noinline)) int victim(void *varg) {
+  struct args_t *arg = varg;
+  uint64_t my_uint64_val = 0x0000FFFFFFFF0000;
+  uint64_t *my_uint64 = &my_uint64_val;
+  uint64_t count_val = (uint64_t)arg->selector;
+  uint64_t *count = &count_val;
+
+  while (1) {
+    work(count, my_uint64);
   }
 
-	return 0;
+  return 0;
 }
 
 // Collects traces
-static __attribute__((noinline)) int monitor(void *in)
-{
-	static int rept_index = 0;
+static __attribute__((noinline)) int governor(void *in) {
+  static int rept_index = 0;
 
-	struct args_t *arg = (struct args_t *)in;
+  struct args_t *arg = (struct args_t *)in;
 
-	// Pin monitor to a single CPU
-	pin_cpu(attacker_core_ID);
+  // Pin monitor to a single CPU
+  pin_cpu(attacker_core_ID);
 
-	// Set filename
-	// The format is, e.g., ./out/all_02_2330.out
-	// where 02 is the selector and 2330 is an index to prevent overwriting files
-	char output_filename[64];
-	sprintf(output_filename, "./out/all_%02d_%06d.out", arg->selector, rept_index);
-	rept_index += 1;
+  // Set filename
+  // The format is, e.g., ./out/all_02_2330.out
+  // where 02 is the selector and 2330 is an index to prevent overwriting files
+  char output_filename[64];
+  sprintf(output_filename, "./out/all_%02d_%06d.out", arg->selector,
+          rept_index);
+  rept_index += 1;
 
-	// Prepare output file
-	FILE *output_file = fopen((char *)output_filename, "w");
-	if (output_file == NULL) {
-		perror("output file");
-	}
+  // Prepare output file
+  FILE *output_file = fopen((char *)output_filename, "w");
+  if (output_file == NULL) {
+    perror("output file");
+  }
 
-	// Prepare
-	volatile double energy, prev_energy = rapl_msr(attacker_core_ID, PP0_ENERGY);
+  // Prepare
+  volatile double energy, prev_energy = rapl_msr(attacker_core_ID, PP0_ENERGY);
 
-	// Collect measurements
-	for (uint64_t i = 0; i < arg->iters; i++) {
+  // Collect measurements
+  for (uint64_t i = 0; i < arg->iters; i++) {
 
-		// Wait before next measurement
-		nanosleep((const struct timespec[]){{0, TIME_BETWEEN_MEASUREMENTS}}, NULL);
+    // Wait before next measurement
+    nanosleep((const struct timespec[]){{0, TIME_BETWEEN_MEASUREMENTS}}, NULL);
 
-		// Collect measurement
-		energy = rapl_msr(attacker_core_ID, PP0_ENERGY);
-    energy_value = energy - prev_energy;
+    // Collect measurement
+    energy = rapl_msr(attacker_core_ID, PP0_ENERGY);
+    // time must be divided by 1_000_000_000, since 1 second under nanosleep is
+    // 1 billion
+    energy_value = ((energy - prev_energy) * 1000000000) /
+                   (double)(TIME_BETWEEN_MEASUREMENTS);
 
-		// Store measurement
-		fprintf(output_file, "%.15f\n", *current_energy);
+    // Evaluate whether workload should execute, or throttle
+    if (energy_value >= power_limit) {
+      // Switch to throttling
+      atomic_store(&work, throttle);
+    } else {
+      // Allow threads to resume execution
+      atomic_store(&work, workload);
+    }
 
-		// Save current
-		prev_energy = energy;
-	}
+    // Store measurement
+    fprintf(output_file, "%.15f\n", energy_value);
 
-	// Clean up
-	fclose(output_file);
-	return 0;
+    // Save current
+    prev_energy = energy;
+  }
+
+  // Clean up
+  fclose(output_file);
+  return 0;
 }
 
-int main(int argc, char *argv[])
-{
-	// Check arguments
-	if (argc != 4) {
-		fprintf(stderr, "Wrong Input! Enter: %s <ntasks> <samples> <outer>\n", argv[0]);
-		exit(EXIT_FAILURE);
-	}
+int main(int argc, char *argv[]) {
+  // Check arguments
+  if (argc != 5) {
+    fprintf(stderr,
+            "Wrong Input! Enter: %s <ntasks> <samples> <outer> <power_limit>\n",
+            argv[0]);
+    exit(EXIT_FAILURE);
+  }
 
-	// Read in args
-	int ntasks;
-	struct args_t arg;
-	int outer;
-	sscanf(argv[1], "%d", &ntasks);
-	if (ntasks < 0) {
-		fprintf(stderr, "ntasks cannot be negative!\n");
-		exit(1);
-	}
-	sscanf(argv[2], "%" PRIu64, &(arg.iters));
-	sscanf(argv[3], "%d", &outer);
-	if (outer < 0) {
-		fprintf(stderr, "outer cannot be negative!\n");
-		exit(1);
-	}
+  // Read in args
+  int ntasks;
+  struct args_t arg;
+  int outer;
+  sscanf(argv[1], "%d", &ntasks);
+  if (ntasks < 0) {
+    fprintf(stderr, "ntasks cannot be negative!\n");
+    exit(1);
+  }
+  sscanf(argv[2], "%" PRIu64, &(arg.iters));
+  sscanf(argv[3], "%d", &outer);
+  if (outer < 0) {
+    fprintf(stderr, "outer cannot be negative!\n");
+    exit(1);
+  }
 
-	// Open the selector file
-	FILE *selectors_file = fopen("input.txt", "r");
-	if (selectors_file == NULL)
-		perror("fopen error");
+  sscanf(argv[4], "%lf", &power_limit);
+  if (power_limit < 0) {
+    fprintf(stderr, "power_limit cannot be negative!\n");
+    exit(1);
+  }
 
-	// Read the selectors file line by line
-	int num_selectors = 0;
-	int selectors[100];
-	size_t len = 0;
-	ssize_t read = 0;
-	char *line = NULL;
-	while ((read = getline(&line, &len, selectors_file)) != -1) {
-		if (line[read - 1] == '\n')
-			line[--read] = '\0';
+  // Open the selector file
+  FILE *selectors_file = fopen("input.txt", "r");
+  if (selectors_file == NULL)
+    perror("fopen error");
 
-		// Read selector
-		sscanf(line, "%d", &(selectors[num_selectors]));
-		num_selectors += 1;
-	}
+  // Read the selectors file line by line
+  int num_selectors = 0;
+  int selectors[100];
+  size_t len = 0;
+  ssize_t read = 0;
+  char *line = NULL;
+  while ((read = getline(&line, &len, selectors_file)) != -1) {
+    if (line[read - 1] == '\n')
+      line[--read] = '\0';
 
-	// Set the scheduling priority to high to avoid interruptions
-	// (lower priorities cause more favorable scheduling, and -20 is the max)
-	setpriority(PRIO_PROCESS, 0, -20);
+    // Read selector
+    sscanf(line, "%d", &(selectors[num_selectors]));
+    num_selectors += 1;
+  }
 
-	// Prepare up monitor/attacker
-	attacker_core_ID = 0;
-	set_rapl_units(attacker_core_ID);
-	rapl_msr(attacker_core_ID, PP0_ENERGY);
+  // Set the scheduling priority to high to avoid interruptions
+  // (lower priorities cause more favorable scheduling, and -20 is the max)
+  setpriority(PRIO_PROCESS, 0, -20);
 
-	// Allocate memory for the threads
-	char *tstacks = mmap(NULL, (ntasks + 1) * STACK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  // Prepare up monitor/attacker
+  attacker_core_ID = 0;
+  set_rapl_units(attacker_core_ID);
+  rapl_msr(attacker_core_ID, PP0_ENERGY);
 
-	// Run experiment once for each selector
-	for (int i = 0; i < outer * num_selectors; i++) {
+  // Allocate memory for the threads
+  char *tstacks = mmap(NULL, (ntasks + 1) * STACK_SIZE, PROT_READ | PROT_WRITE,
+                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
-		// Set alternating selector
-		arg.selector = selectors[i % num_selectors];
+  // Run experiment once for each selector
+  for (int i = 0; i < outer * num_selectors; i++) {
+    static int instr_file_index = 0;
 
-		// Start victim threads
-		int tids[ntasks];
-		for (int tnum = 0; tnum < ntasks; tnum++) {
-			tids[tnum] = clone(&victim, tstacks + (ntasks - tnum) * STACK_SIZE, CLONE_VM | SIGCHLD, &arg);
-		}
+    // Set alternating selector
+    arg.selector = selectors[i % num_selectors];
 
-		// Start the monitor thread
-		clone(&monitor, tstacks + (ntasks + 1) * STACK_SIZE, CLONE_VM | SIGCHLD, (void *)&arg);
+    // Start victim threads
+    int tids[ntasks];
+    for (int tnum = 0; tnum < ntasks; tnum++) {
+      tids[tnum] = clone(&victim, tstacks + (ntasks - tnum) * STACK_SIZE,
+                         CLONE_VM | SIGCHLD, &arg);
+    }
 
-		// Join monitor thread
-		wait(NULL);
+    // Start the monitor thread
+    clone(&governor, tstacks + (ntasks + 1) * STACK_SIZE, CLONE_VM | SIGCHLD,
+          (void *)&arg);
 
-		// Kill victim threads
-		for (int tnum = 0; tnum < ntasks; tnum++) {
-			syscall(SYS_tgkill, tids[tnum], tids[tnum], SIGTERM);
+    // Join monitor thread
+    wait(NULL);
 
-			// Need to join o/w the threads remain as zombies
-			// https://askubuntu.com/a/427222/1552488
-			wait(NULL);
-		}
-	}
+    // Kill victim threads
+    for (int tnum = 0; tnum < ntasks; tnum++) {
+      syscall(SYS_tgkill, tids[tnum], tids[tnum], SIGTERM);
 
-	// Clean up
-	munmap(tstacks, (ntasks + 1) * STACK_SIZE);
+      // Need to join o/w the threads remain as zombies
+      // https://askubuntu.com/a/427222/1552488
+      wait(NULL);
+    }
+
+    // Get final average instruction count
+    int average_instruction_count_without_nop =
+        *instruction_counter_ptr / ntasks;
+    // TODO: Write report function (average power from polling, total non-nop
+    // instructions executed, etc)
+    // report(average_instruction_count_without_nop);
+    char output_instruction_filename[64];
+    sprintf(output_instruction_filename,
+            "./out/all_%02d_%06d_instruction_count_avg.out", arg.selector,
+            instr_file_index);
+    instr_file_index += 1;
+
+    // Prepare output file
+    FILE *output_file_instructions =
+        fopen((char *)output_instruction_filename, "w");
+    if (output_file_instructions == NULL) {
+      perror("output file (instructions)");
+    }
+
+    fprintf(output_file_instructions, "%d\n",
+            average_instruction_count_without_nop);
+  }
+
+  // Clean up
+  munmap(tstacks, (ntasks + 1) * STACK_SIZE);
 }
